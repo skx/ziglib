@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,8 +20,16 @@ const DefaultTopicPrefix = "zigbee2mqtt"
 
 // Config contains the connection settings for an MQTT broker.
 type Config struct {
-	Broker              string
-	ClientID            string
+	Broker string
+
+	// ClientID is the MQTT client identifier. It must be unique among all
+	// clients connected to the broker at the same time: when a second client
+	// connects with an ID already in use the broker disconnects the first,
+	// and with auto-reconnect enabled the two will repeatedly kick each other
+	// off, losing messages. Leave it empty (recommended) to have a unique ID
+	// generated for every connection.
+	ClientID string
+
 	TopicPrefix         string
 	ConnectTimeout      time.Duration
 	RequestTimeout      time.Duration
@@ -29,7 +38,6 @@ type Config struct {
 	KeepAlive           time.Duration
 	Username            string
 	Password            string
-	CleanSession        bool
 }
 
 // Device describes a device reported by Zigbee2MQTT's bridge/devices topic.
@@ -55,6 +63,23 @@ type Client struct {
 }
 
 var generatedID atomic.Uint64
+
+// generateClientID returns a client ID which is unique across processes and
+// hosts, so that concurrent clients never trigger an MQTT session takeover.
+func generateClientID() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "unknown"
+	}
+
+	return fmt.Sprintf(
+		"ziglib-%s-%d-%d-%d",
+		host,
+		os.Getpid(),
+		time.Now().UnixNano(),
+		generatedID.Add(1),
+	)
+}
 
 // Connect connects to the broker, subscribes to Zigbee2MQTT updates, discovers
 // devices, requests their current states, and waits up to InitialStateTimeout
@@ -83,11 +108,7 @@ func Connect(config Config) (*Client, error) {
 		config.StateTimeout = 20 * time.Second
 	}
 	if config.ClientID == "" {
-		config.ClientID = fmt.Sprintf(
-			"zigbee2mqtt-go-%d-%d",
-			time.Now().UnixNano(),
-			generatedID.Add(1),
-		)
+		config.ClientID = generateClientID()
 	}
 
 	c := &Client{
@@ -144,10 +165,6 @@ func Connect(config Config) (*Client, error) {
 	if config.Username != "" {
 		opts.SetUsername(config.Username)
 		opts.SetPassword(config.Password)
-	}
-
-	if config.CleanSession {
-		opts.SetCleanSession(true)
 	}
 
 	c.client = mqtt.NewClient(opts)
