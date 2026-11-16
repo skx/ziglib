@@ -7,11 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"uuid"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
@@ -23,11 +23,7 @@ type Config struct {
 	Broker string
 
 	// ClientID is the MQTT client identifier. It must be unique among all
-	// clients connected to the broker at the same time: when a second client
-	// connects with an ID already in use the broker disconnects the first,
-	// and with auto-reconnect enabled the two will repeatedly kick each other
-	// off, losing messages. Leave it empty (recommended) to have a unique ID
-	// generated for every connection.
+	// clients connected to the broker at the same time.
 	ClientID string
 
 	TopicPrefix         string
@@ -62,23 +58,13 @@ type Client struct {
 	changed chan struct{}
 }
 
-var generatedID atomic.Uint64
-
 // generateClientID returns a client ID which is unique across processes and
 // hosts, so that concurrent clients never trigger an MQTT session takeover.
 func generateClientID() string {
-	host, err := os.Hostname()
-	if err != nil || host == "" {
-		host = "unknown"
-	}
 
-	return fmt.Sprintf(
-		"ziglib-%s-%d-%d-%d",
-		host,
-		os.Getpid(),
-		time.Now().UnixNano(),
-		generatedID.Add(1),
-	)
+	u := uuid.New()
+
+	return fmt.Sprintf("ziglib-%s", u.String())
 }
 
 // Connect connects to the broker, subscribes to Zigbee2MQTT updates, discovers
