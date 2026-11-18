@@ -463,6 +463,10 @@ func (c *Client) GetState(name string) string {
 // state. It returns an error if the command cannot be published or the device
 // does not confirm the requested state before Config.StateTimeout expires.
 func (c *Client) SetState(name, state string) error {
+	return c.SetThing(name, "state", state)
+}
+
+func (c *Client) SetThing(name, key, state string) error {
 	if c == nil ||
 		c.client == nil ||
 		!c.client.IsConnected() {
@@ -470,7 +474,10 @@ func (c *Client) SetState(name, state string) error {
 	}
 
 	name = strings.TrimSpace(name)
-	state = strings.ToUpper(strings.TrimSpace(state))
+	state = strings.TrimSpace(state)
+	if strings.EqualFold(key, "state") {
+		state = strings.ToUpper(state)
+	}
 
 	if name == "" || strings.Contains(name, "/") {
 		return errors.New("invalid device name")
@@ -497,7 +504,7 @@ func (c *Client) SetState(name, state string) error {
 	}
 
 	payload, err := json.Marshal(
-		map[string]string{"state": state},
+		map[string]string{key: state},
 	)
 	if err != nil {
 		return fmt.Errorf(
@@ -524,34 +531,7 @@ func (c *Client) SetState(name, state string) error {
 		)
 	}
 
-	timer := time.NewTimer(c.stateTimeout)
-	defer timer.Stop()
-
-	for {
-		c.mu.RLock()
-
-		device := c.devices[name]
-
-		if device.State == state {
-			c.mu.RUnlock()
-			return nil
-		}
-
-		changed := c.changed
-		c.mu.RUnlock()
-
-		select {
-		case <-changed:
-
-		case <-timer.C:
-			return fmt.Errorf(
-				"timed out waiting for %q to reach state %s (last state: %s)",
-				name,
-				state,
-				c.GetState(name),
-			)
-		}
-	}
+	return nil
 }
 
 // Prefix returns the configured Zigbee2MQTT topic prefix.
